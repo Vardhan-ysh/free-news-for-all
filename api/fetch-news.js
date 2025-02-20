@@ -30,30 +30,36 @@ async function fetchNewsPage(page) {
 
 async function uploadToGithub(content, filename) {
   try {
-    // Get the current date for the commit message
     const date = new Date().toISOString().split("T")[0];
 
-    // Check if file exists and get its SHA if it does
-    let fileSha;
+    // Get existing content if any
+    let existingContent = [];
     try {
       const { data } = await octokit.repos.getContent({
         owner: REPO_OWNER,
         repo: REPO_NAME,
         path: filename,
       });
-      fileSha = data.sha;
+      existingContent = JSON.parse(Buffer.from(data.sha, "base64").toString());
     } catch (error) {
       // File doesn't exist yet, which is fine
     }
+
+    // Merge new content with existing content
+    const mergedContent = [...existingContent, ...content];
 
     // Create or update file
     await octokit.repos.createOrUpdateFileContents({
       owner: REPO_OWNER,
       repo: REPO_NAME,
       path: filename,
-      message: `Update news data for ${date}`,
-      content: Buffer.from(JSON.stringify(content, null, 2)).toString("base64"),
-      sha: fileSha,
+      message: `Update news data for ${date} - Page ${
+        content[0]?.page || "unknown"
+      }`,
+      content: Buffer.from(JSON.stringify(mergedContent, null, 2)).toString(
+        "base64"
+      ),
+      ...(existingContent.length > 0 ? { sha: data.sha } : {}),
     });
 
     return true;
@@ -64,55 +70,55 @@ async function uploadToGithub(content, filename) {
 }
 
 module.exports = async (req, res) => {
-  // Only allow scheduled POST requests
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Verify the request is from our scheduler
   const authHeader = req.headers.authorization;
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const allNews = [];
-  let page = 1;
-  let hasMorePages = true;
+  // We'll only fetch 2 pages per execution to stay within the time limit
+  const currentPage = parseInt(req.query.page) || 1;
+  const newsData = await fetchNewsPage(currentPage);
 
-  // Fetch all pages until we hit the API limit or run out of news
-  while (hasMorePages && page <= 10) {
-    // Limiting to 10 pages as an example
-    const newsData = await fetchNewsPage(page);
-
-    if (!newsData || !newsData.data || newsData.data.length === 0) {
-      hasMorePages = false;
-      break;
-    }
-
-    allNews.push(...newsData.data);
-    page++;
-
-    // Respect API rate limits
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  if (!newsData || !newsData.data || newsData.data.length === 0) {
+    return res.status(200).json({ message: "No more data to fetch" });
   }
 
-  if (allNews.length > 0) {
-    // Create filename with current date
-    const date = new Date().toISOString().split("T")[0];
-    const filename = `news/${date}.json`;
+  // Create filename with current date
+  const date = new Date().toISOString().split("T")[0];
+  const filename = `news/${date}.json`;
 
-    // Upload to GitHub
-    const success = await uploadToGithub(allNews, filename);
+  // Upload to GitHub
+  const success = await uploadToGithub(newsData.data, filename);
 
-    if (success) {
-      res.status(200).json({
-        message: "News data updated successfully",
-        articles: allNews.length,
-      });
-    } else {
-      res.status(500).json({ error: "Failed to upload to GitHub" });
+  if (success) {
+    // If there might be more pages, trigger the next page fetch
+    if (newsData.meta && newsData.meta.found > currentPage * 100) {
+      try {
+        // Trigger next page fetch
+        await axios.post(
+          `${req.headers.origin}/api/fetch-news?page=${currentPage + 1}`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CRON_SECRET}`,
+            },
+          }
+        );
+      } catch (error) {
+        console.error("Error triggering next page:", error);
+      }
     }
+
+    res.status(200).json({
+      message: "News data updated successfully",
+      page: currentPage,
+      articles: newsData.data.length,
+    });
   } else {
-    res.status(500).json({ error: "Failed to fetch news data" });
+    res.status(500).json({ error: "Failed to upload to GitHub" });
   }
 };

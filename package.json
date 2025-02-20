@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "@octokit/rest": "^21.1.1",
-    "axios": "^1.7.9"
+    "axios": "^1.7.9",
+    "free-news": "file:"
   }
 }
