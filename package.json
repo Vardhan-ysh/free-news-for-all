@@ -1,17 +1,20 @@
 {
-  "name": "free-news",
+  "name": "news-fetcher",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Daily news fetcher service",
+  "main": "api/fetch-news.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vercel dev",
+    "build": "vercel build",
+    "deploy": "vercel deploy",
+    "deploy:prod": "vercel deploy --prod"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@octokit/rest": "^21.1.1",
-    "axios": "^1.7.9",
-    "free-news": "file:"
+    "@octokit/rest": "^20.0.2",
+    "axios": "^1.6.2",
+    "news-fetcher": "file:"
+  },
+  "devDependencies": {
+    "vercel": "^32.7.2"
   }
 }
